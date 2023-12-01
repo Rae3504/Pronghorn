@@ -29,7 +29,7 @@
 ║                           ██████▀██▓▌▀▌ ▄     ▄▓▌▐▓█▌                ║
 ║                                                                      ║
 ║                                                                      ║
-║                    Pronghorn Framework  Rev. B49                     ║
+║                    Pronghorn Framework  Rev. B53-r                   ║
 ║             https://github.com/Iron-Stag-Games/Pronghorn             ║
 ║                GNU Lesser General Public License v2.1                ║
 ║                                                                      ║
@@ -124,13 +124,9 @@ return {
 		-- Init
 		for _, moduleTable in allModules do
 			if type(moduleTable.Return) == "table" and moduleTable.Return.Init then
-				local didHeartbeat;
-				RunService.Heartbeat:Once(function()
-					didHeartbeat = true
-				end)
-				moduleTable.Return:Init()
-				if didHeartbeat then
-					error(`{moduleTable.Object:GetFullName()} yielded during Init`, 0)
+				local thread = task.spawn(moduleTable.Return.Init, moduleTable.Return)
+				if coroutine.status(thread) ~= "dead" then
+					error(`{moduleTable.Object:GetFullName()}: Yielded during Init function`, 0)
 				end
 			end
 		end
@@ -142,7 +138,14 @@ return {
 			if type(moduleTable.Return) == "table" and moduleTable.Return.Deferred then
 				startWaits += 1
 				task.spawn(function()
+					local running = true
+					task.delay(5, function()
+						if running then
+							warn(`{moduleTable.Object:GetFullName()}: Infinite yield possible in Deferred function`)
+						end
+					end)
 					moduleTable.Return:Deferred()
+					running = false
 					startWaits -= 1
 					if startWaits == 0 then
 						deferredComplete:Fire()
@@ -182,5 +185,10 @@ return {
 				end
 			end
 		end)
+
+		-- Wait for Deferred Functions to complete
+		while startWaits > 0 do
+			deferredComplete:Wait()
+		end
 	end;
 }
