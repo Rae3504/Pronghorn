@@ -100,7 +100,7 @@ end
 --- @error Remotes.CreateToClient: Parameter 'remoteType' expected 'nil | Unreliable" | "Reliable" | "Returns"', got '{remoteType}' -- Incorrect usage.
 --- @error Creating remotes under the ModuleScript name '{moduleName}' would overwrite a function -- Not allowed.
 --- @error Remote '{name}' already created in '{moduleName}' -- Duplicate.
-function Remotes:CreateToClient(name: string, requiredParameterTypes: {string}, remoteType: ("Unreliable" | "Reliable" | "Returns")?)
+function Remotes:CreateToClient(name: string, requiredParameterTypes: {string}, remoteType: ("Unreliable" | "Reliable")?)
 	if RunService:IsClient() then error("Remotes cannot be created on the client", 0) end
 	if type(requiredParameterTypes) ~= "table" then error(`Remotes.CreateToClient: Parameter 'requiredParameterTypes' expected type '\{string}', got '{typeof(requiredParameterTypes)}'`, 0) end
 	if remoteType ~= nil and remoteType ~= "Unreliable" and remoteType ~= "Reliable" and remoteType ~= "Returns" then error(`Remotes.CreateToClient: Parameter 'remoteType' expected 'nil | "Unreliable" | "Reliable" | "Returns"', got '{remoteType}'`, 0) end
@@ -113,7 +113,7 @@ function Remotes:CreateToClient(name: string, requiredParameterTypes: {string}, 
 
 	local environment = "[" .. moduleName .. "]"
 	local serverFolder = remotesFolder:FindFirstChild(moduleName) or New.Instance("Folder", remotesFolder, moduleName)
-	local remote = New.Instance(if remoteType == "Returns" then "RemoteFunction" elseif remoteType == "Unreliable" then "UnreliableRemoteEvent" else "RemoteEvent", serverFolder, name)
+	local remote = New.Instance(if remoteType == "Unreliable" then "UnreliableRemoteEvent" else "RemoteEvent", serverFolder, name)
 	local actions = {}
 
 	if not Remotes[moduleName] then
@@ -121,38 +121,30 @@ function Remotes:CreateToClient(name: string, requiredParameterTypes: {string}, 
 	end
 	Remotes[moduleName][remote.Name] = actions
 
-	if remoteType == "Returns" then
-		actions.Fire = function(_, player: Player, ...: any?)
-			TypeChecker(remote, requiredParameterTypes, ...)
-			Print(environment, name, "Fire", ...)
-			return remote:InvokeClient(player, ...)
-		end
-	else
-		actions.Fire = function(_, players: Player | {Player}, ...: any?)
-			TypeChecker(remote, requiredParameterTypes, ...)
-			Print(environment, name, "Fire", players, ...)
-			if type(players) == "table" then
-				for _, player in players do
-					remote:FireClient(player, ...)
-				end
-			else
-				remote:FireClient(players, ...)
+	actions.Fire = function(_, players: Player | {Player}, ...: any?)
+		TypeChecker(remote, requiredParameterTypes, ...)
+		Print(environment, name, "Fire", players, ...)
+		if type(players) == "table" then
+			for _, player in players do
+				remote:FireClient(player, ...)
 			end
+		else
+			remote:FireClient(players, ...)
 		end
+	end
 
-		actions.FireAll = function(_, ...: any?)
-			TypeChecker(remote, requiredParameterTypes, ...)
-			Print(environment, name, "FireAll", ...)
-			remote:FireAllClients(...)
-		end
+	actions.FireAll = function(_, ...: any?)
+		TypeChecker(remote, requiredParameterTypes, ...)
+		Print(environment, name, "FireAll", ...)
+		remote:FireAllClients(...)
+	end
 
-		actions.FireAllExcept = function(_, ignorePlayer: Player, ...: any?)
-			TypeChecker(remote, requiredParameterTypes, ...)
-			Print(environment, name, "FireAllExcept", ignorePlayer, ...)
-			for _, player in Players:GetPlayers() do
-				if player ~= ignorePlayer then
-					remote:FireClient(player, ...)
-				end
+	actions.FireAllExcept = function(_, ignorePlayer: Player, ...: any?)
+		TypeChecker(remote, requiredParameterTypes, ...)
+		Print(environment, name, "FireAllExcept", ignorePlayer, ...)
+		for _, player in Players:GetPlayers() do
+			if player ~= ignorePlayer then
+				remote:FireClient(player, ...)
 			end
 		end
 	end
