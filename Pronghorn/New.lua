@@ -8,6 +8,8 @@
 
 local New = {}
 
+local Signal = require(game:GetService('ReplicatedStorage').SharedModules.Signal)
+
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- Helper Variables
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -28,6 +30,12 @@ export type TrackedVariable = {
 	Once: (self: TrackedVariable, callback: Callback) -> (Connection);
 	Wait: (self: TrackedVariable, timeout: number?) -> (any);
 }
+type Properties = {
+	[string]: any,
+	Children: {Instance}?,
+	Attributes: {[string]: any}?,
+	Tags: {string}?
+}
 
 -- Constants
 local QUEUED_EVENT_QUEUE_SIZE = 256
@@ -42,24 +50,7 @@ local QUEUED_EVENT_QUEUE_SIZE = 256
 --- @param name? -- The Name for the Instance.
 --- @param properties? -- A table of properties to apply to the Instance.
 --- @return Instance -- The new Instance.
---- @error Parent parameter used more than once -- Incorrect usage.
---- @error Name parameter used more than once -- Incorrect usage.
---- @error Properties parameter used more than once -- Incorrect usage.
-function New.Instance(className: string, ...: (Instance | string | {[string]: any, Children: {Instance}?, Attributes: {[string]: any}?, Tags: {string}?})?): any
-	local parent: Instance?, name: string?, properties: {[string]: any, Children: {Instance}?, Attributes: {[string]: any}?, Tags: {string}?}?;
-	for _, parameter in {...} do
-		if typeof(parameter) == "Instance" then
-			if parent then error("Parent parameter used more than once") end
-			parent = parameter
-		elseif type(parameter) == "string" or type(parameter) == "number" then
-			if name then error("Name parameter used more than once") end
-			name = tostring(parameter)
-		elseif type(parameter) == "table" then
-			if properties then error("Properties parameter used more than once") end
-			properties = parameter
-		end
-	end
-
+function New.Instance(className: string, parent: Instance?, name: string?, properties: Properties?): any
 	local newInstance = Instance.new(className)
 
 	if name then
@@ -79,8 +70,6 @@ function New.Instance(className: string, ...: (Instance | string | {[string]: an
 				for _, tag in value do
 					newInstance:AddTag(tag)
 				end
-			elseif typeof((newInstance :: any)[key]) == "RBXScriptSignal" then
-				(newInstance :: any)[key]:Connect(value)
 			else
 				(newInstance :: any)[key] = value
 			end
@@ -93,32 +82,17 @@ function New.Instance(className: string, ...: (Instance | string | {[string]: an
 	return newInstance
 end
 
---- Clones and returns an Instance.
+--- Clones and returns and Instance.
 --- @param instance -- The Instance to clone from.
 --- @param parent? -- The Parent for the cloned Instance after creation.
 --- @param name? -- The Name for the cloned Instance.
 --- @param properties? -- A table of properties to apply to the cloned Instance.
 --- @return Instance -- The cloned Instance.
---- @error Attempt to clone non-Instance -- Incorrect usage.
 --- @error Parent parameter used more than once -- Incorrect usage.
 --- @error Name parameter used more than once -- Incorrect usage.
 --- @error Properties parameter used more than once -- Incorrect usage.
-function New.Clone<T>(instance: T, ...: (Instance | string | {[string]: any, Children: {Instance}?, Attributes: {[string]: any}?, Tags: {string}?})?): T
+function New.Clone<T>(instance: T, parent: Instance?, name: string?, properties: Properties?): T
 	assert(typeof(instance) == "Instance", "Attempt to clone non-Instance")
-
-	local parent: Instance?, name: string?, properties: {[string]: any, Children: {Instance}?, Attributes: {[string]: any}?, Tags: {string}?}?;
-	for _, parameter in {...} do
-		if typeof(parameter) == "Instance" then
-			if parent then error("Parent parameter used more than once") end
-			parent = parameter
-		elseif type(parameter) == "string" or type(parameter) == "number" then
-			if name then error("Name parameter used more than once") end
-			name = tostring(parameter)
-		elseif type(parameter) == "table" then
-			if properties then error("Properties parameter used more than once") end
-			properties = parameter
-		end
-	end
 
 	local newInstance = instance:Clone()
 
@@ -139,8 +113,6 @@ function New.Clone<T>(instance: T, ...: (Instance | string | {[string]: any, Chi
 				for _, tag in value do
 					newInstance:AddTag(tag)
 				end
-			elseif typeof((newInstance :: any)[key]) == "RBXScriptSignal" then
-				(newInstance :: any)[key]:Connect(value)
 			else
 				(newInstance :: any)[key] = value
 			end
@@ -155,65 +127,8 @@ end
 
 --- Creates and returns an Event.
 --- @return Event -- The new Event.
-function New.Event(): Event
-	local callbacks: {Callback} = {}
-	local waiting: {Callback | thread} = {}
-
-	local actions: Event = {
-		Fire = function(_, ...: any?)
-			for _, callback in callbacks do
-				task.spawn(callback, ...)
-			end
-			local currentlyWaiting = table.clone(waiting)
-			table.clear(waiting)
-			for _, callback in currentlyWaiting do
-				task.spawn(callback, ...)
-			end
-		end;
-
-		Connect = function(_, callback: Callback)
-			table.insert(callbacks, callback)
-			return {Disconnect = function()
-				table.remove(callbacks, table.find(callbacks, callback))
-			end}
-		end;
-
-		Once = function(_, callback: Callback)
-			table.insert(waiting, callback)
-			return {Disconnect = function()
-				table.remove(waiting, table.find(waiting, callback))
-			end}
-		end;
-
-		Wait = function(_, timeout: number?)
-			local co = coroutine.running()
-			table.insert(waiting, co)
-			if timeout then
-				task.delay(timeout, function()
-					local index = table.find(waiting, co)
-					if index then
-						table.remove(waiting, index)
-					end
-					task.spawn(co)
-				end)
-			end
-			return coroutine.yield()
-		end;
-
-		DisconnectAll = function(_)
-			table.clear(callbacks)
-			for _, callback in waiting do
-				if type(callback) == "thread" then
-					task.cancel(callback)
-				end
-			end
-			table.clear(waiting)
-		end;
-	}
-
-	table.freeze(actions)
-
-	return actions
+function New.Event()
+	return Signal.new()
 end
 
 --- Creates and returns a QueuedEvent.

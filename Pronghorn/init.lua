@@ -29,7 +29,7 @@
 ║                           ██████▀██▓▌▀▌ ▄     ▄▓▌▐▓█▌                ║
 ║                                                                      ║
 ║                                                                      ║
-║                    Pronghorn Framework  Rev. B53                     ║
+║                    Pronghorn Framework  Rev. B49                     ║
 ║             https://github.com/Iron-Stag-Games/Pronghorn             ║
 ║                GNU Lesser General Public License v2.1                ║
 ║                                                                      ║
@@ -55,6 +55,7 @@
 
 -- Services
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 -- Core
 local New = require(script.New)
@@ -123,9 +124,13 @@ return {
 		-- Init
 		for _, moduleTable in allModules do
 			if type(moduleTable.Return) == "table" and moduleTable.Return.Init then
-				local thread = task.spawn(moduleTable.Return.Init, moduleTable.Return)
-				if coroutine.status(thread) ~= "dead" then
-					error(`{moduleTable.Object:GetFullName()}: Yielded during Init function`, 0)
+				local didHeartbeat;
+				RunService.Heartbeat:Once(function()
+					didHeartbeat = true
+				end)
+				moduleTable.Return:Init()
+				if didHeartbeat then
+					error(`{moduleTable.Object:GetFullName()} yielded during Init`, 0)
 				end
 			end
 		end
@@ -137,14 +142,7 @@ return {
 			if type(moduleTable.Return) == "table" and moduleTable.Return.Deferred then
 				startWaits += 1
 				task.spawn(function()
-					local running = true
-					task.delay(5, function()
-						if running then
-							warn(`{moduleTable.Object:GetFullName()}: Infinite yield possible in Deferred function`)
-						end
-					end)
 					moduleTable.Return:Deferred()
-					running = false
 					startWaits -= 1
 					if startWaits == 0 then
 						deferredComplete:Fire()
@@ -156,13 +154,13 @@ return {
 		-- PlayerAdded
 		local function playerAdded(player: Player)
 			for _, moduleTable in allModules do
-				if type(moduleTable.Return) == "table" and moduleTable.Return.PlayerAdded then
-					task.spawn(moduleTable.Return.PlayerAdded, player)
+				if type(moduleTable.Return) == "table" and moduleTable.Return.PlayerAddedInit then
+					task.spawn(moduleTable.Return.PlayerAddedInit, moduleTable.Return, player)
 				end
 			end
 			for _, moduleTable in allModules do
-				if type(moduleTable.Return) == "table" and moduleTable.Return.PlayerAddedDeferred then
-					task.spawn(moduleTable.Return.PlayerAddedDeferred, player)
+				if type(moduleTable.Return) == "table" and moduleTable.Return.PlayerAdded then
+					task.spawn(moduleTable.Return.PlayerAdded, moduleTable.Return, player)
 				end
 			end
 		end
@@ -174,20 +172,15 @@ return {
 		-- PlayerRemoving
 		Players.PlayerRemoving:Connect(function(player: Player)
 			for _, moduleTable in allModules do
-				if type(moduleTable.Return) == "table" and moduleTable.Return.PlayerRemoving then
-					task.spawn(moduleTable.Return.PlayerRemoving, player)
+				if type(moduleTable.Return) == "table" and moduleTable.Return.PlayerRemovingInit then
+					task.spawn(moduleTable.Return.PlayerRemovingInit, moduleTable.Return, player)
 				end
 			end
 			for _, moduleTable in allModules do
-				if type(moduleTable.Return) == "table" and moduleTable.Return.PlayerRemovingDeferred then
-					task.spawn(moduleTable.Return.PlayerRemovingDeferred, player)
+				if type(moduleTable.Return) == "table" and moduleTable.Return.PlayerRemoving then
+					task.spawn(moduleTable.Return.PlayerRemoving, moduleTable.Return, player)
 				end
 			end
 		end)
-
-		-- Wait for Deferred Functions to complete
-		while startWaits > 0 do
-			deferredComplete:Wait()
-		end
 	end;
 }
