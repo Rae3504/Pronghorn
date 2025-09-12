@@ -207,7 +207,7 @@ function Pronghorn:Import(paths: {Instance}): ()
 			end
 		end
 		if player.Parent then player.AncestryChanged:Wait() end
-		pcall(player.Destroy, player)
+		task.delay(10, pcall, player.Destroy, player)
 		for _, moduleTable in allModules do
 			if type(moduleTable.Return) == "table" and moduleTable.Return.PlayerRemoved then
 				task.spawn(moduleTable.Return.PlayerRemoved, player)
