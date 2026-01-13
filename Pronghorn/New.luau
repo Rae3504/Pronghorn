@@ -34,8 +34,7 @@ export type Event<T...> = {
 	Fire: (self: Event<T...>, T...) -> ();
 	Connect: (self: Event<T...>, callback: Callback<T...>) -> (Connection);
 	Once: (self: Event<T...>, callback: Callback<T...>) -> (Connection);
-	Wait: (self: Event<T...>, timeout: number?) -> (T...); -- Note: variadics can't be made nullable yet
-	WaitFor: (self: Event<T...>, timeout: number?) -> (T...); -- Note: variadics can't be made nullable yet
+	Wait: (self: Event<T...>, timeout: number?) -> (boolean, T...);
 	DisconnectAll: (self: Event<T...>) -> ();
 }
 export type TrackedVariable<T> = {
@@ -43,8 +42,8 @@ export type TrackedVariable<T> = {
 	Set: (self: TrackedVariable<T>, value: T) -> ();
 	Connect: (self: TrackedVariable<T>, callback: Callback<T, T>) -> (Connection);
 	Once: (self: TrackedVariable<T>, callback: Callback<T, T>) -> (Connection);
-	Wait: (self: TrackedVariable<T>) -> (T, T) & (self: TrackedVariable<T>, timeout: number) -> (T?, T?);
-	WaitFor: (self: TrackedVariable<T>) -> (T, T) & (self: TrackedVariable<T>, timeout: number) -> (T?, T?);
+	Wait: (self: TrackedVariable<T>, timeout: number?) -> (boolean, T, T);
+	WaitFor: (self: TrackedVariable<T>, value: T, timeout: number?) -> (boolean, T, T);
 	DisconnectAll: (self: TrackedVariable<T>) -> ();
 }
 export type InstanceStream<T...> = {
@@ -92,8 +91,12 @@ function New.Event(): Event<...any>
 				task.spawn(callback, ...)
 			end
 			for _, callback in currentlyWaiting do
-				if typeof(callback) == "thread" and coroutine.status(callback) ~= "suspended" then continue end
-				task.spawn(callback, ...)
+				if typeof(callback) == "thread" then
+					if coroutine.status(callback) ~= "suspended" then continue end
+					task.spawn(callback, true, ...)
+				else
+					task.spawn(callback, ...)
+				end
 			end
 		end;
 
@@ -111,7 +114,7 @@ function New.Event(): Event<...any>
 			end}
 		end;
 
-		Wait = function(self: Event<...any>, timeout: number?): ...any
+		Wait = function(self: Event<...any>, timeout: number?): (boolean, ...any)
 			local co = coroutine.running()
 			table.insert(waiting, co)
 			if timeout then
@@ -121,15 +124,11 @@ function New.Event(): Event<...any>
 						table.remove(waiting, index)
 					end
 					if coroutine.status(co) == "suspended" then
-						task.spawn(co)
+						task.spawn(co, false)
 					end
 				end)
 			end
 			return coroutine.yield()
-		end;
-
-		WaitFor = function(self: Event<any>, timeout: number?): ()
-			error("Unimplemented")
 		end;
 
 		DisconnectAll = function(self: Event<...any>): ()
@@ -154,7 +153,6 @@ end
 --- @return Event<...any> -- The new `QueuedEvent`.
 function New.QueuedEvent(nameHint: string?, queueSize: number?): Event<...any>
 	queueSize = queueSize or QUEUED_EVENT_QUEUE_SIZE
-	assert(queueSize)
 
 	local callbacks: {Callback<...any>} = {}
 	local waiting: {Callback<...any> | thread} = {}
@@ -191,8 +189,12 @@ function New.QueuedEvent(nameHint: string?, queueSize: number?): Event<...any>
 					task.spawn(callback, ...)
 				end
 				for _, callback in currentlyWaiting do
-					if typeof(callback) == "thread" and coroutine.status(callback) ~= "suspended" then continue end
-					task.spawn(callback, ...)
+					if typeof(callback) == "thread" then
+						if coroutine.status(callback) ~= "suspended" then continue end
+						task.spawn(callback, true, ...)
+					else
+						task.spawn(callback, ...)
+					end
 				end
 			end
 		end;
@@ -213,7 +215,7 @@ function New.QueuedEvent(nameHint: string?, queueSize: number?): Event<...any>
 			end}
 		end;
 
-		Wait = function(self: Event<...any>, timeout: number?): ...any
+		Wait = function(self: Event<...any>, timeout: number?): (boolean, ...any)
 			local queuedInvocation = resumeQueuedEventInvocations(self)
 			if queuedInvocation then
 				return table.unpack(queuedInvocation)
@@ -227,15 +229,11 @@ function New.QueuedEvent(nameHint: string?, queueSize: number?): Event<...any>
 						table.remove(waiting, index)
 					end
 					if coroutine.status(co) == "suspended" then
-						task.spawn(co)
+						task.spawn(co, false)
 					end
 				end)
 			end
 			return coroutine.yield()
-		end;
-
-		WaitFor = function(self: Event<any>, timeout: number?): ()
-			error("Unimplemented")
 		end;
 
 		DisconnectAll = function(self: Event<...any>): ()
@@ -276,8 +274,12 @@ function New.TrackedVariable(variable: any): TrackedVariable<any>
 					task.spawn(callback, oldValue, newValue)
 				end
 				for _, callback in currentlyWaiting do
-					if typeof(callback) == "thread" and coroutine.status(callback) ~= "suspended" then continue end
-					task.spawn(callback, oldValue, newValue)
+					if typeof(callback) == "thread" then
+						if coroutine.status(callback) ~= "suspended" then continue end
+						task.spawn(callback, true, oldValue, newValue)
+					else
+						task.spawn(callback, oldValue, newValue)
+					end
 				end
 			end
 		end;
@@ -296,7 +298,7 @@ function New.TrackedVariable(variable: any): TrackedVariable<any>
 			end}
 		end;
 
-		Wait = function(self: TrackedVariable<any>, timeout: number?): ()
+		Wait = function(self: TrackedVariable<any>, timeout: number?): (boolean, any?, any?)
 			local co = coroutine.running()
 			table.insert(waiting, co)
 			if timeout then
@@ -306,14 +308,14 @@ function New.TrackedVariable(variable: any): TrackedVariable<any>
 						table.remove(waiting, index)
 					end
 					if coroutine.status(co) == "suspended" then
-						task.spawn(co)
+						task.spawn(co, false)
 					end
 				end)
 			end
 			return coroutine.yield()
 		end;
 
-		WaitFor = function(self: TrackedVariable<any>, timeout: number?): ()
+		WaitFor = function(self: TrackedVariable<any>, value: any, timeout: number?): (boolean, any?, any?)
 			error("Unimplemented")
 		end;
 
@@ -402,11 +404,11 @@ end
 
 --- Listens to a `ServerInstanceStream` and returns activity `Events`.
 --- @param uid -- The UID of the `ServerInstanceStream`.
---- @return Event<...any?> -- The `Event` that fires when the `ClientInstanceStream` has received all `Instances`.
---- @return Event<any?> -- The `Event` that fires when an `Instance` is received.
+--- @return Event<...Instance?> -- The `Event` that fires when the `ClientInstanceStream` has received all `Instances`.
+--- @return Event<Instance?> -- The `Event` that fires when an `Instance` is received.
 --- @return Instance -- The container for the `ServerInstanceStream`.
 --- @error ClientInstanceStream cannot be created on the server -- Incorrect usage.
-function New.ClientInstanceStream(uid: string): (Event<...any?>, Event<any?>, Instance)
+function New.ClientInstanceStream(uid: string): (Event<...Instance?>, Event<Instance?>, Instance)
 	if IS_SERVER then error("ClientInstanceStream cannot be created on the server", 0) end
 
 	local container = assert(localPlayer.PlayerGui:WaitForChild("__instanceStream_" .. uid, 30), `Cannot find InstanceStream with UID "{uid}"`) :: RemoteEvent
@@ -414,8 +416,8 @@ function New.ClientInstanceStream(uid: string): (Event<...any?>, Event<any?>, In
 	local instances: {Instance} = {}
 	local failedInstances: {true} = {}
 	local finished = false
-	local finishedEvent: Event<...Instance?> = New.QueuedEvent("InstanceStream Finished Event")
-	local streamEvent: Event<Instance?> = New.QueuedEvent("InstanceStream Stream Event", math.huge)
+	local finishedEvent = New.QueuedEvent("InstanceStream Finished Event") :: Event<...Instance?>
+	local streamEvent = New.QueuedEvent("InstanceStream Stream Event", math.huge) :: Event<Instance?>
 
 	local function checkFinished(): boolean
 		if finished then return true end

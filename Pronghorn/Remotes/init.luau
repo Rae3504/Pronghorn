@@ -11,7 +11,13 @@
 local a = if game:GetService("RunService"):IsServer() then "__s" else "__c"
 if not script:GetAttribute(a) then script:SetAttribute(a, true) else error("Required Pronghorn/Remotes from more than one Luau VM; please use BindableFunctions", 0) end
 
-local Remotes = {Server = {}, Client = {}}
+local Remotes = {
+	Server = {} :: {[string]: {[string]: ServerRemote}} & {
+		CreateToClient: (self: any, name: string, requiredParameterTypes: {string}, remoteType: ("Unreliable" | "Reliable" | "Returns")?, moduleNameOverride: string?) -> ServerRemote;
+		CreateToServer: (self: any, name: string, requiredParameterTypes: {string}, remoteType: ("Unreliable" | "Reliable" | "Returns")?, func: (Player, ...any) -> (...any)?, moduleNameOverride: string?) -> ServerRemote;
+	};
+	Client = {} :: {[string]: {[string]: ClientRemote}};
+}
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- Dependencies
@@ -33,6 +39,7 @@ local TypeChecker = require(script.TypeChecker)
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 -- Types
+type RBXScriptConnectionProxy = {Connected: boolean, Disconnect: (self: any) -> ()}
 type ServerRemote = {
 	Fire: (self: ServerRemote, players: Player | {Player}, ...any) -> (...any);
 	FireAll: (self: ServerRemote, ...any) -> ();
@@ -44,7 +51,7 @@ type ServerRemote = {
 type ClientRemote = typeof(setmetatable({} :: {
 	Fire: (self: ClientRemote, ...any) -> (...any);
 	Connect: (self: ClientRemote, func: (...any) -> ()) -> RBXScriptConnection;
-	ConnectDeferred: (self: ClientRemote, func: (...any) -> ()) -> {Connected: boolean, Disconnect: (self: any) -> ()};
+	ConnectDeferred: (self: ClientRemote, func: (...any) -> ()) -> RBXScriptConnectionProxy;
 }, {} :: {
 	__call: (self: ClientRemote, context: any, ...any) -> (...any)
 }))
@@ -107,9 +114,9 @@ local function connectEventClient(remote: RemoteFunction | UnreliableRemoteEvent
 			return (remote :: RemoteEvent).OnClientEvent:Connect(func)
 		end
 
-		actions.ConnectDeferred = function(self: ClientRemote, func: (...any) -> ()): {Connected: boolean, Disconnect: (self: any) -> ()}
+		actions.ConnectDeferred = function(self: ClientRemote, func: (...any) -> ()): RBXScriptConnectionProxy
 			local connection: RBXScriptConnection?
-			local proxy; proxy = {
+			local proxy: RBXScriptConnectionProxy; proxy = {
 				Connected = false;
 				Disconnect = function(self: any): ()
 					assert(connection, "Disconnect was called before remote had connected"):Disconnect()
